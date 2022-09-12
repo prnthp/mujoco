@@ -71,6 +71,10 @@ set(MUJOCO_ENGINE_SRCS
     engine_vis_interact.h
     engine_vis_visualize.c
     engine_vis_visualize.h
+    qsort_r_compat.c
+    qsort_r_compat.h
+    threads.c
+    threads.h
 )
 
 target_sources(mujoco PRIVATE ${MUJOCO_ENGINE_SRCS})

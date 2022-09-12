@@ -16,6 +16,7 @@
 #define MUJOCO_SRC_ENGINE_ENGINE_CROSSPLATFORM_H_
 
 #include <stdlib.h>
+#include "qsort_r_compat.h"
 
 // Windows
 #ifdef _WIN32
@@ -30,20 +31,27 @@
 
 // Unix-common
 #else
-  // Apple
-  #ifdef __APPLE__
-    #define mjQUICKSORT(buf, elnum, elsz, func, context) \
+// Apple
+#ifdef __APPLE__
+#define mjQUICKSORT(buf, elnum, elsz, func, context) \
         qsort_r(buf, elnum, elsz, context, func)
     #define quicksortfunc(name, context, el1, el2) \
         static int name(void* context, const void* el1, const void* el2)
 
   // non-Apple
-  #else
-    #define mjQUICKSORT(buf, elnum, elsz, func, context) \
-        qsort_r(buf, elnum, elsz, func, context)
-    #define quicksortfunc(name, context, el1, el2) \
-        static int name(const void* el1, const void* el2, void* context)
-  #endif
+#else
+#ifdef __ANDROID__
+#define mjQUICKSORT(buf, elnum, elsz, func, context) \
+            qsort_r_compat(buf, elnum, elsz, context, func)
+#define quicksortfunc(name, context, el1, el2) \
+            static int name(void* context, const void* el1, const void* el2)
+#else
+#define mjQUICKSORT(buf, elnum, elsz, func, context) \
+            qsort_r(buf, elnum, elsz, func, context)
+        #define quicksortfunc(name, context, el1, el2) \
+            static int name(const void* el1, const void* el2, void* context)
+#endif
+#endif
 #endif
 
 #endif  // MUJOCO_SRC_ENGINE_ENGINE_CROSSPLATFORM_H_
