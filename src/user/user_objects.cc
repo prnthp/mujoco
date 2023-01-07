@@ -25,12 +25,14 @@
 
 #include "lodepng.h"
 #include <mujoco/mjmodel.h>
+#include <mujoco/mjplugin.h>
 #include "cc/array_safety.h"
 #include "engine/engine_core_smooth.h"
 #include "engine/engine_crossplatform.h"
 #include "engine/engine_file.h"
 #include "engine/engine_io.h"
 #include "engine/engine_macro.h"
+#include "engine/engine_plugin.h"
 #include "engine/engine_util_errmem.h"
 #include "engine/engine_util_misc.h"
 #include "engine/engine_util_solve.h"
@@ -324,7 +326,14 @@ mjCBody::mjCBody(mjCModel* _model) {
   weldid = -1;
   dofnum = 0;
   lastdof = -1;
+  gravcomp = 0;
   userdata.clear();
+
+  // plugin variables
+  is_plugin = false;
+  plugin_instance = nullptr;
+  plugin_name = "";
+  plugin_instance_name = "";
 
   // clear object lists
   bodies.clear();
@@ -693,8 +702,10 @@ void mjCBody::Compile(void) {
 
   // compile all geoms, phase 1
   for (i=0; i<geoms.size(); i++) {
-    geoms[i]->inferinertia = id>0 && (!explicitinertial ||
-                                      model->inertiafromgeom==mjINERTIAFROMGEOM_TRUE);
+    geoms[i]->inferinertia = id>0 &&
+      (!explicitinertial || model->inertiafromgeom == mjINERTIAFROMGEOM_TRUE) &&
+      geoms[i]->group >= model->inertiagrouprange[0] &&
+      geoms[i]->group <= model->inertiagrouprange[1];
     geoms[i]->Compile();
   }
 
@@ -797,6 +808,21 @@ void mjCBody::Compile(void) {
 
   // compile all lights
   for (i=0; i<lights.size(); i++) lights[i]->Compile();
+
+  // plugin
+  if (is_plugin) {
+    if (plugin_name.empty() && plugin_instance_name.empty()) {
+      throw mjCError(
+          this, "neither 'plugin' nor 'instance' is specified for body '%s', (id = %d)",
+          name.c_str(), id);
+    }
+
+    model->ResolvePlugin(this, plugin_name, plugin_instance_name, &plugin_instance);
+    const mjpPlugin* plugin = mjp_getPluginAtSlot(plugin_instance->plugin_slot);
+    if (!(plugin->capabilityflags & mjPLUGIN_PASSIVE)) {
+      throw mjCError(this, "plugin '%s' does not support passive forces", plugin->name);
+    }
+  }
 }
 
 
@@ -1367,7 +1393,7 @@ void mjCGeom::Compile(void) {
   else {
     const char* err = alt.Set(quat, inertia, model->degree, model->euler);
     if (err) {
-      throw mjCError(this, "alternative specification error '%s' in geom %d", err, id);
+      throw mjCError(this, "orientation specification error '%s' in geom %d", err, id);
     }
   }
 
@@ -1543,7 +1569,7 @@ void mjCSite::Compile(void) {
   else {
     const char* err = alt.Set(quat, 0, model->degree, model->euler);
     if (err) {
-      throw mjCError(this, "alternative specification error '%s' in site %d", err, id);
+      throw mjCError(this, "orientation specification error '%s' in site %d", err, id);
     }
   }
 
@@ -1602,7 +1628,7 @@ void mjCCamera::Compile(void) {
   // process orientation specifications
   const char* err = alt.Set(quat, 0, model->degree, model->euler);
   if (err) {
-    throw mjCError(this, "alternative specification error '%s' in site %d", err, id);
+    throw mjCError(this, "orientation specification error '%s' in camera %d", err, id);
   }
 
   // normalize quaternion
@@ -1879,7 +1905,8 @@ void mjCHField::Compile(const mjVFS* vfs) {
     string filename = mjuu_makefullname(model->modelfiledir, model->meshdir, file);
 
     // load depending on format
-    if (!strcasecmp(filename.substr(filename.length()-4, 5).c_str(), ".png")) {
+    string ext = mjuu_getext(filename);
+    if (!strcasecmp(ext.c_str(), ".png")) {
       LoadPNG(filename, vfs);
     } else {
       LoadCustom(filename, vfs);
@@ -2301,7 +2328,8 @@ void mjCTexture::LoadFlip(string filename, const mjVFS* vfs,
                           std::vector<unsigned char>& image,
                           unsigned int& w, unsigned int& h) {
   // dispatch to PNG or Custom loaded
-  if (!strcasecmp(filename.substr(filename.length()-4, 5).c_str(), ".png")) {
+  string ext = mjuu_getext(filename);
+  if (!strcasecmp(ext.c_str(), ".png")) {
     LoadPNG(filename, vfs, image, w, h);
   } else {
     LoadCustom(filename, vfs, image, w, h);
@@ -3014,7 +3042,7 @@ mjCTendon::mjCTendon(mjCModel* _model, mjCDef* _def) {
   stiffness = 0;
   damping = 0;
   frictionloss = 0;
-  springlength = -1;
+  springlength[0] = springlength[1] = -1;
   rgba[0] = rgba[1] = rgba[2] = 0.5f;
   rgba[3] = 1.0f;
   userdata.clear();
@@ -3246,6 +3274,11 @@ void mjCTendon::Compile(void) {
   if (range[0]>=range[1] && limited) {
     throw mjCError(this, "invalid limits in tendon '%s (id = %d)'", name.c_str(), id);
   }
+
+  // check springlength
+  if (springlength[0] > springlength[1]) {
+    throw mjCError(this, "invalid springlength in tendon '%s (id = %d)'", name.c_str(), id);
+  }
 }
 
 
@@ -3357,6 +3390,7 @@ mjCActuator::mjCActuator(mjCModel* _model, mjCDef* _def) {
   ctrllimited = 2;
   forcelimited = 2;
   actlimited = 2;
+  actdim = -1;
   trntype = mjTRN_UNDEFINED;
   dyntype = mjDYN_NONE;
   gaintype = mjGAIN_FIXED;
@@ -3389,6 +3423,11 @@ mjCActuator::mjCActuator(mjCModel* _model, mjCDef* _def) {
   // set model, def
   model = _model;
   def = (_def ? _def : (_model ? _model->defaults[0] : 0));
+
+  is_plugin = false;
+  plugin_instance = nullptr;
+  plugin_name = "";
+  plugin_instance_name = "";
 }
 
 
@@ -3434,6 +3473,23 @@ void mjCActuator::Compile(void) {
   if (actlimited && dyntype == mjDYN_NONE) {
     throw mjCError(this, "actrange specified but dyntype is 'none' in actuator '%s' (id = %d)",
                    name.c_str(), id);
+  }
+
+  // check and set actdim
+  if (actdim > 1 && dyntype != mjDYN_USER) {
+    throw mjCError(this, "actdim > 1 is only allowed for dyntype 'user' in actuator '%s' (id = %d)",
+                   name.c_str(), id);
+  }
+  if (actdim == 1 && dyntype == mjDYN_NONE) {
+    throw mjCError(this, "invalid actdim 1 in stateless actuator '%s' (id = %d)", name.c_str(), id);
+  }
+  if (actdim == 0 && dyntype != mjDYN_NONE) {
+    throw mjCError(this, "invalid actdim 0 in stateful actuator '%s' (id = %d)", name.c_str(), id);
+  }
+
+  // set actdim
+  if (actdim < 0) {
+    actdim = (dyntype != mjDYN_NONE);
   }
 
   // check muscle parameters
@@ -3551,6 +3607,21 @@ void mjCActuator::Compile(void) {
   } else {
     trnid[0] = ptarget->id;
   }
+
+  // plugin
+  if (is_plugin) {
+    if (plugin_name.empty() && plugin_instance_name.empty()) {
+      throw mjCError(
+          this, "neither 'plugin' nor 'instance' is specified for actuator '%s', (id = %d)",
+          name.c_str(), id);
+    }
+
+    model->ResolvePlugin(this, plugin_name, plugin_instance_name, &plugin_instance);
+    const mjpPlugin* plugin = mjp_getPluginAtSlot(plugin_instance->plugin_slot);
+    if (!(plugin->capabilityflags & mjPLUGIN_ACTUATOR)) {
+      throw mjCError(this, "plugin '%s' does not support actuators", plugin->name);
+    }
+  }
 }
 
 
@@ -3578,6 +3649,10 @@ mjCSensor::mjCSensor(mjCModel* _model) {
   // clear private variables
   objid = -1;
   refid = -1;
+
+  plugin_instance = nullptr;
+  plugin_name = "";
+  plugin_instance_name = "";
 }
 
 
@@ -3622,7 +3697,7 @@ void mjCSensor::Compile(void) {
 
     // get sensorized object id
     objid = pobj->id;
-  } else if (type != mjSENS_CLOCK) {
+  } else if (type != mjSENS_CLOCK && type != mjSENS_PLUGIN && type != mjSENS_USER) {
     throw mjCError(this, "invalid type in sensor '%s' (id = %d)", name.c_str(), id);
   }
 
@@ -3704,7 +3779,7 @@ void mjCSensor::Compile(void) {
                      "joint must be slide or hinge in sensor '%s' (id = %d)", name.c_str(), id);
     }
 
-    //set
+    // set
     dim = 1;
     datatype = mjDATATYPE_REAL;
     if (type==mjSENS_JOINTPOS) {
@@ -3915,6 +3990,28 @@ void mjCSensor::Compile(void) {
                      "datatype QUATERNION requires dim=4 in sensor '%s' (id = %d)",
                      name.c_str(), id);
     }
+    break;
+
+  case mjSENS_PLUGIN:
+    dim = 0;  // to be filled in by the plugin later
+    datatype = mjDATATYPE_REAL;  // no noise added to plugin sensors, this attribute is unused
+
+    if (plugin_name.empty() && plugin_instance_name.empty()) {
+      throw mjCError(
+          this, "neither 'plugin' nor 'instance' is specified for sensor '%s', (id = %d)",
+          name.c_str(), id);
+    }
+
+    // resolve plugin instance, or create one if using the "plugin" attribute shortcut
+    {
+      model->ResolvePlugin(this, plugin_name, plugin_instance_name, &plugin_instance);
+      const mjpPlugin* plugin = mjp_getPluginAtSlot(plugin_instance->plugin_slot);
+      if (!(plugin->capabilityflags & mjPLUGIN_SENSOR)) {
+        throw mjCError(this, "plugin '%s' does not support sensors", plugin->name);
+      }
+      needstage = static_cast<mjtStage>(plugin->needstage);
+    }
+
     break;
 
   default:
@@ -4171,4 +4268,48 @@ void mjCKey::Compile(const mjModel* m) {
     throw mjCError(this, "key %d: invalid ctrl size, expected length %d", nullptr, id, m->nu);
   }
 
+}
+
+
+//------------------ class mjCPlugin implementation ------------------------------------------------
+
+// initialize defaults
+mjCPlugin::mjCPlugin(mjCModel* _model) {
+  name = "";
+  plugin_slot = -1;
+  nstate = 0;
+  parent = this;
+  model = _model;
+}
+
+
+
+// compiler
+void mjCPlugin::Compile(void) {
+  const mjpPlugin* plugin = mjp_getPluginAtSlot(this->plugin_slot);
+
+  // concatenate all of the plugin's attribute values (as null-terminated strings) into
+  // flattened_attributes, in the order declared in the mjpPlugin
+  // each valid attribute found is appended to flattened_attributes and removed from xml_attributes
+  for (int i = 0; i < plugin->nattribute; ++i) {
+    std::string_view attr(plugin->attributes[i]);
+    auto it = config_attribs.find(attr);
+    if (it == config_attribs.end()) {
+      flattened_attributes.push_back('\0');
+    } else {
+      auto original_size = flattened_attributes.size();
+      flattened_attributes.resize(original_size + it->second.size() + 1);
+      std::memcpy(&flattened_attributes[original_size], it->second.c_str(),
+                  it->second.size() + 1);
+      config_attribs.erase(it);
+    }
+  }
+
+  // anything left in xml_attributes at this stage is not a valid attribute
+  if (!config_attribs.empty()) {
+    std::string error =
+        "unrecognized attribute 'plugin:" + config_attribs.begin()->first +
+        "' for plugin " + std::string(plugin->name) + "'";
+    throw mjCError(parent, error.c_str());
+  }
 }

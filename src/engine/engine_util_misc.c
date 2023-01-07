@@ -831,6 +831,9 @@ const char* mju_type2Str(int type) {
   case mjOBJ_KEY:
     return "key";
 
+  case mjOBJ_PLUGIN:
+    return "plugin";
+
   default:
     return 0;
   }
@@ -932,6 +935,10 @@ int mju_str2Type(const char* str) {
     return mjOBJ_KEY;
   }
 
+  else if (!strcmp(str, "plugin")) {
+    return mjOBJ_PLUGIN;
+  }
+
   else {
     return mjOBJ_UNKNOWN;
   }
@@ -939,41 +946,67 @@ int mju_str2Type(const char* str) {
 
 
 
+// return human readable number of bytes using standard letter suffix
+const char* mju_writeNumBytes(const size_t nbytes) {
+  int i;
+  static mjTHREADLOCAL char message[20];
+  static const char suffix[] = " KMGTPE";
+  for (i=0; i<6; i++) {
+    const size_t bits = (size_t)(1) << (10*(6-i));
+    if (nbytes >= bits && !(nbytes & (bits - 1))) {
+      break;
+    }
+  }
+  if (i<6) {
+    mjSNPRINTF(message, "%zu%c", nbytes >> (10*(6-i)), suffix[6-i]);
+  } else {
+    mjSNPRINTF(message, "%zu", nbytes >> (10*(6-i)));
+  }
+  return message;
+}
+
+
+
 // warning text
-const char* mju_warningText(int warning, int info) {
-  static char str[1000];
+const char* mju_warningText(int warning, size_t info) {
+  static mjTHREADLOCAL char str[1000];
 
   switch (warning) {
   case mjWARN_INERTIA:
-    mjSNPRINTF(str, "Inertia matrix is too close to singular at DOF %d. Check model.", info);
+    mjSNPRINTF(str, "Inertia matrix is too close to singular at DOF %zu. Check model.", info);
     break;
 
   case mjWARN_CONTACTFULL:
-    mjSNPRINTF(str, "Pre-allocated contact buffer is full. Increase nconmax above %d.", info);
+    mjSNPRINTF(str,
+               "Too many contacts. Either the arena memory is full, or nconmax is specified and is "
+               "exceeded. Increase arena memory allocation, or increase/remove nconmax. "
+               "(ncon = %zu)", info);
     break;
 
   case mjWARN_CNSTRFULL:
-    mjSNPRINTF(str, "Pre-allocated constraint buffer is full. Increase njmax above %d.", info);
+    mjSNPRINTF(str,
+               "Insufficient arena memory for the number of constraints generated. "
+               "Increase arena memory allocation above %s bytes.", mju_writeNumBytes(info));
     break;
 
   case mjWARN_VGEOMFULL:
-    mjSNPRINTF(str, "Pre-allocated visual geom buffer is full. Increase maxgeom above %d.", info);
+    mjSNPRINTF(str, "Pre-allocated visual geom buffer is full. Increase maxgeom above %zu.", info);
     break;
 
   case mjWARN_BADQPOS:
-    mjSNPRINTF(str, "Nan, Inf or huge value in QPOS at DOF %d. The simulation is unstable.", info);
+    mjSNPRINTF(str, "Nan, Inf or huge value in QPOS at DOF %zu. The simulation is unstable.", info);
     break;
 
   case mjWARN_BADQVEL:
-    mjSNPRINTF(str, "Nan, Inf or huge value in QVEL at DOF %d. The simulation is unstable.", info);
+    mjSNPRINTF(str, "Nan, Inf or huge value in QVEL at DOF %zu. The simulation is unstable.", info);
     break;
 
   case mjWARN_BADQACC:
-    mjSNPRINTF(str, "Nan, Inf or huge value in QACC at DOF %d. The simulation is unstable.", info);
+    mjSNPRINTF(str, "Nan, Inf or huge value in QACC at DOF %zu. The simulation is unstable.", info);
     break;
 
   case mjWARN_BADCTRL:
-    mjSNPRINTF(str, "Nan, Inf or huge value in CTRL at ACTUATOR %d. The simulation is unstable.",
+    mjSNPRINTF(str, "Nan, Inf or huge value in CTRL at ACTUATOR %zu. The simulation is unstable.",
                info);
     break;
 

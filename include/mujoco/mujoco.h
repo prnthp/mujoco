@@ -24,16 +24,17 @@ extern "C" {
 #endif
 
 // header version; should match the library version as returned by mj_version()
-#define mjVERSION_HEADER 222
+#define mjVERSION_HEADER 231
 
 // needed to define size_t, fabs and log10
-#include "stdlib.h"
-#include "math.h"
+#include <stdlib.h>
+#include <math.h>
 
 
 // type definitions
 #include <mujoco/mjdata.h>
 #include <mujoco/mjmodel.h>
+#include <mujoco/mjplugin.h>
 #include <mujoco/mjrender.h>
 #include <mujoco/mjtnum.h>
 #include <mujoco/mjui.h>
@@ -175,7 +176,7 @@ MJAPI void mj_deleteModel(mjModel* m);
 // Return size of buffer needed to hold model.
 MJAPI int mj_sizeModel(const mjModel* m);
 
-// Allocate mjData correponding to given model.
+// Allocate mjData corresponding to given model.
 // If the model buffer is unallocated the initial configuration will not be set.
 MJAPI mjData* mj_makeData(const mjModel* m);
 
@@ -344,7 +345,7 @@ MJAPI void mj_collision(const mjModel* m, mjData* d);
 // Construct constraints.
 MJAPI void mj_makeConstraint(const mjModel* m, mjData* d);
 
-// Compute inverse constaint inertia efc_AR.
+// Compute inverse constraint inertia efc_AR.
 MJAPI void mj_projectConstraint(const mjModel* m, mjData* d);
 
 // Compute efc_vel, efc_aref.
@@ -418,7 +419,7 @@ MJAPI void mj_mulM2(const mjModel* m, const mjData* d, mjtNum* res, const mjtNum
 // Destination can be sparse uncompressed, or dense when all int* are NULL
 MJAPI void mj_addM(const mjModel* m, mjData* d, mjtNum* dst, int* rownnz, int* rowadr, int* colind);
 
-// Apply cartesian force and torque (outside xfrc_applied mechanism).
+// Apply Cartesian force and torque (outside xfrc_applied mechanism).
 MJAPI void mj_applyFT(const mjModel* m, mjData* d, const mjtNum force[3], const mjtNum torque[3],
                       const mjtNum point[3], int body, mjtNum* qfrc_target);
 
@@ -452,6 +453,18 @@ MJAPI mjtNum mj_getTotalmass(const mjModel* m);
 
 // Scale body masses and inertias to achieve specified total mass.
 MJAPI void mj_setTotalmass(mjModel* m, mjtNum newmass);
+
+// Return a config attribute value of a plugin instance;
+// NULL: invalid plugin instance ID or attribute name
+MJAPI const char* mj_getPluginConfig(const mjModel* m, int plugin_id, const char* attrib);
+
+// Load a dynamic library. The dynamic library is assumed to register one or more plugins.
+MJAPI void mj_loadPluginLibrary(const char* path);
+
+// Scan a directory and load all dynamic libraries. Dynamic libraries in the specified directory
+// are assumed to register one or more plugins. Optionally, if a callback is specified, it is called
+// for each dynamic library encountered that registers plugins.
+MJAPI void mj_loadAllPluginLibraries(const char* directory, mjfPluginLibraryLoadCallback callback);
 
 // Return version number: 1.0.2 is encoded as 102.
 MJAPI int mj_version(void);
@@ -866,6 +879,9 @@ MJAPI mjtNum mju_normalize4(mjtNum res[4]);
 // Set res = 0.
 MJAPI void mju_zero(mjtNum* res, int n);
 
+// Set res = val.
+MJAPI void mju_fill(mjtNum* res, mjtNum val, int n);
+
 // Set res = vec.
 MJAPI void mju_copy(mjtNum* res, const mjtNum* data, int n);
 
@@ -911,8 +927,17 @@ MJAPI void mju_mulMatVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec, int 
 // Multiply transposed matrix and vector: res = mat' * vec.
 MJAPI void mju_mulMatTVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec, int nr, int nc);
 
+// Multiply square matrix with vectors on both sides: returns vec1' * mat * vec2.
+MJAPI mjtNum mju_mulVecMatVec(const mjtNum* vec1, const mjtNum* mat, const mjtNum* vec2, int n);
+
 // Transpose matrix: res = mat'.
 MJAPI void mju_transpose(mjtNum* res, const mjtNum* mat, int nr, int nc);
+
+// Symmetrize square matrix res = (mat + mat')/2.
+MJAPI void mju_symmetrize(mjtNum* res, const mjtNum* mat, int n);
+
+// Set mat to the identity matrix.
+MJAPI void mju_eye(mjtNum* mat, int n);
 
 // Multiply matrices: res = mat1 * mat2.
 MJAPI void mju_mulMatMat(mjtNum* res, const mjtNum* mat1, const mjtNum* mat2,
@@ -991,7 +1016,7 @@ MJAPI void mju_trnVecPose(mjtNum res[3], const mjtNum pos[3], const mjtNum quat[
                           const mjtNum vec[3]);
 
 
-//--------------------------------- Decompositions -------------------------------------------------
+//--------------------------------- Decompositions / Solvers ---------------------------------------
 
 // Cholesky decomposition: mat = L*L'; return rank, decomposition performed in-place into mat.
 MJAPI int mju_cholFactor(mjtNum* mat, int n, mjtNum mindiag);
@@ -1005,6 +1030,35 @@ MJAPI int mju_cholUpdate(mjtNum* mat, mjtNum* x, int n, int flg_plus);
 // Eigenvalue decomposition of symmetric 3x3 matrix.
 MJAPI int mju_eig3(mjtNum eigval[3], mjtNum eigvec[9], mjtNum quat[4], const mjtNum mat[9]);
 
+// minimize 0.5*x'*H*x + x'*g  s.t. lower <= x <= upper, return rank or -1 if failed
+//   inputs:
+//     n           - problem dimension
+//     H           - SPD matrix                n*n
+//     g           - bias vector               n
+//     lower       - lower bounds              n
+//     upper       - upper bounds              n
+//     res         - solution warmstart        n
+//   return value:
+//     nfree <= n  - rank of unconstrained subspace, -1 if failure
+//   outputs (required):
+//     res         - solution                  n
+//     R           - subspace Cholesky factor  nfree*nfree    allocated: n*(n+7)
+//   outputs (optional):
+//     index       - set of free dimensions    nfree          allocated: n
+//   notes:
+//     the initial value of res is used to warmstart the solver
+//     R must have allocatd size n*(n+7), but only nfree*nfree values are used in output
+//     index (if given) must have allocated size n, but only nfree values are used in output
+//     only the lower triangles of H and R and are read from and written to, respectively
+//     the convenience function mju_boxQPmalloc allocates the required data structures
+MJAPI int mju_boxQP(mjtNum* res, mjtNum* R, int* index, const mjtNum* H, const mjtNum* g, int n,
+                    const mjtNum* lower, const mjtNum* upper);
+
+// allocate heap memory for box-constrained Quadratic Program
+//   as in mju_boxQP, index, lower, and upper are optional
+//   free all pointers with mju_free()
+MJAPI void mju_boxQPmalloc(mjtNum** res, mjtNum** R, int** index, mjtNum** H, mjtNum** g, int n,
+                           mjtNum** lower, mjtNum** upper);
 
 //---------------------- Miscellaneous -------------------------------------------------------------
 
@@ -1049,8 +1103,11 @@ MJAPI const char* mju_type2Str(int type);
 // Convert type name to type id (mjtObj).
 MJAPI int mju_str2Type(const char* str);
 
+// Return human readable number of bytes using standard letter suffix.
+MJAPI const char* mju_writeNumBytes(const size_t nbytes);
+
 // Construct a warning message given the warning type and info.
-MJAPI const char* mju_warningText(int warning, int info);
+MJAPI const char* mju_warningText(int warning, size_t info);
 
 // Return 1 if nan or abs(x)>mjMAXVAL, 0 otherwise. Used by check functions.
 MJAPI int mju_isBad(mjtNum x);
@@ -1102,6 +1159,29 @@ MJAPI mjtNum mju_sigmoid(mjtNum x);
 MJAPI void mjd_transitionFD(const mjModel* m, mjData* d, mjtNum eps, mjtByte centered,
                             mjtNum* A, mjtNum* B, mjtNum* C, mjtNum* D);
 
+
+
+//---------------------- Plugins -------------------------------------------------------------------
+
+// Set default plugin definition.
+MJAPI void mjp_defaultPlugin(mjpPlugin* plugin);
+
+// Globally register a plugin. This function is thread-safe.
+// If an identical mjpPlugin is already registered, this function does nothing.
+// If a non-identical mjpPlugin with the same name is already registered, an mju_error is raised.
+// Two mjpPlugins are considered identical if all member function pointers and numbers are equal,
+// and the name and attribute strings are all identical, however the char pointers to the strings
+// need not be the same.
+MJAPI int mjp_registerPlugin(const mjpPlugin* plugin);
+
+// Return the number of globally registered plugins.
+MJAPI int mjp_pluginCount();
+
+// Look up a plugin by name. If slot is not NULL, also write its registered slot number into it.
+MJAPI const mjpPlugin* mjp_getPlugin(const char* name, int* slot);
+
+// Look up a plugin by the registered slot number that was returned by mjp_registerPlugin.
+MJAPI const mjpPlugin* mjp_getPluginAtSlot(int slot);
 
 
 #if defined(__cplusplus)

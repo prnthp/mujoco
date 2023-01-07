@@ -22,6 +22,8 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
+
 //------------------------------ tendons and actuators ---------------------------------------------
 
 // wrap tendons around spheres and cylinders
@@ -85,8 +87,11 @@ MJAPI const char* mju_type2Str(int type);
 // convert type name to type id (mjtObj)
 MJAPI int mju_str2Type(const char* str);
 
+// return human readable number of bytes using standard letter suffix
+MJAPI const char* mju_writeNumBytes(const size_t nbytes);
+
 // warning text
-MJAPI const char* mju_warningText(int warning, int info);
+MJAPI const char* mju_warningText(int warning, size_t info);
 
 // return 1 if nan or abs(x)>mjMAXVAL, 0 otherwise
 MJAPI int mju_isBad(mjtNum x);

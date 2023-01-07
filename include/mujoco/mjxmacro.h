@@ -102,6 +102,8 @@
     X( ntupledata )         \
     X( nkey )               \
     X( nmocap )             \
+    X( nplugin )            \
+    X( npluginattr )        \
     X( nuser_body )         \
     X( nuser_jnt )          \
     X( nuser_geom )         \
@@ -111,6 +113,7 @@
     X( nuser_actuator )     \
     X( nuser_sensor )       \
     X( nnames )             \
+    X( nnames_map )         \
     X( nM )                 \
     X( nD )                 \
     X( nemax )              \
@@ -119,6 +122,7 @@
     X( nstack )             \
     X( nuserdata )          \
     X( nsensordata )        \
+    X( npluginstate )       \
     X( nbuffer )
 
 
@@ -137,7 +141,6 @@
     int na = m->na;                         \
     int nu = m->nu;                         \
     int nmocap = m->nmocap;
-
 
 // macro for annotating that an array size in an X macro is a member of mjModel
 // by default this macro does nothing, but users can redefine it as necessary
@@ -168,7 +171,9 @@
     X( mjtNum,  body_subtreemass,      nbody,         1                    ) \
     X( mjtNum,  body_inertia,          nbody,         3                    ) \
     X( mjtNum,  body_invweight0,       nbody,         2                    ) \
+    X( mjtNum,  body_gravcomp,         nbody,         1                    ) \
     X( mjtNum,  body_user,             nbody,         MJ_M(nuser_body)     ) \
+    X( int,     body_plugin,           nbody,         1                    ) \
     X( int,     jnt_type,              njnt,          1                    ) \
     X( int,     jnt_qposadr,           njnt,          1                    ) \
     X( int,     jnt_dofadr,            njnt,          1                    ) \
@@ -338,7 +343,7 @@
     X( mjtNum,  tendon_stiffness,      ntendon,       1                    ) \
     X( mjtNum,  tendon_damping,        ntendon,       1                    ) \
     X( mjtNum,  tendon_frictionloss,   ntendon,       1                    ) \
-    X( mjtNum,  tendon_lengthspring,   ntendon,       1                    ) \
+    X( mjtNum,  tendon_lengthspring,   ntendon,       2                    ) \
     X( mjtNum,  tendon_length0,        ntendon,       1                    ) \
     X( mjtNum,  tendon_invweight0,     ntendon,       1                    ) \
     X( mjtNum,  tendon_user,           ntendon,       MJ_M(nuser_tendon)   ) \
@@ -351,6 +356,8 @@
     X( int,     actuator_gaintype,     nu,            1                    ) \
     X( int,     actuator_biastype,     nu,            1                    ) \
     X( int,     actuator_trnid,        nu,            2                    ) \
+    X( int,     actuator_actadr,       nu,            1                    ) \
+    X( int,     actuator_actnum,       nu,            1                    ) \
     X( int,     actuator_group,        nu,            1                    ) \
     X( mjtByte, actuator_ctrllimited,  nu,            1                    ) \
     X( mjtByte, actuator_forcelimited, nu,            1                    ) \
@@ -367,6 +374,7 @@
     X( mjtNum,  actuator_length0,      nu,            1                    ) \
     X( mjtNum,  actuator_lengthrange,  nu,            2                    ) \
     X( mjtNum,  actuator_user,         nu,            MJ_M(nuser_actuator) ) \
+    X( int,     actuator_plugin,       nu,            1                    ) \
     X( int,     sensor_type,           nsensor,       1                    ) \
     X( int,     sensor_datatype,       nsensor,       1                    ) \
     X( int,     sensor_needstage,      nsensor,       1                    ) \
@@ -379,6 +387,12 @@
     X( mjtNum,  sensor_cutoff,         nsensor,       1                    ) \
     X( mjtNum,  sensor_noise,          nsensor,       1                    ) \
     X( mjtNum,  sensor_user,           nsensor,       MJ_M(nuser_sensor)   ) \
+    X( int,     sensor_plugin,         nsensor,       1                    ) \
+    X( int,     plugin,                nplugin,       1                    ) \
+    X( int,     plugin_stateadr,       nplugin,       1                    ) \
+    X( int,     plugin_statenum,       nplugin,       1                    ) \
+    X( char,    plugin_attr,           npluginattr,   1                    ) \
+    X( int,     plugin_attradr,        nplugin,       1                    ) \
     X( int,     numeric_adr,           nnumeric,      1                    ) \
     X( int,     numeric_size,          nnumeric,      1                    ) \
     X( mjtNum,  numeric_data,          nnumericdata,  1                    ) \
@@ -418,15 +432,15 @@
     X( int,     name_textadr,          ntext,         1                    ) \
     X( int,     name_tupleadr,         ntuple,        1                    ) \
     X( int,     name_keyadr,           nkey,          1                    ) \
-    X( char,    names,                 nnames,        1                    )
-
+    X( int,     name_pluginadr,        nplugin,       1                    ) \
+    X( char,    names,                 nnames,        1                    ) \
+    X( int,     names_map,             nnames_map,    1                    ) \
 
 //-------------------------------- mjData ----------------------------------------------------------
 
 // define symbols needed in MJDATA_POINTERS (corresponding to number of columns)
 #define MJDATA_POINTERS_PREAMBLE( m ) \
-    int nv = m->nv;                   \
-    int njmax = m->njmax;
+    int nv = m->nv;
 
 
 // pointer fields of mjData
@@ -435,6 +449,7 @@
     X( mjtNum,    qvel,              nv,          1           ) \
     X( mjtNum,    act,               na,          1           ) \
     X( mjtNum,    qacc_warmstart,    nv,          1           ) \
+    X( mjtNum,    plugin_state,      npluginstate, 1          ) \
     X( mjtNum,    ctrl,              nu,          1           ) \
     X( mjtNum,    qfrc_applied,      nv,          1           ) \
     X( mjtNum,    xfrc_applied,      nbody,       6           ) \
@@ -444,6 +459,8 @@
     X( mjtNum,    act_dot,           na,          1           ) \
     X( mjtNum,    userdata,          nuserdata,   1           ) \
     X( mjtNum,    sensordata,        nsensordata, 1           ) \
+    X( int,       plugin,            nplugin,     1           ) \
+    X( uintptr_t, plugin_data,       nplugin,     1           ) \
     X( mjtNum,    xpos,              nbody,       3           ) \
     X( mjtNum,    xquat,             nbody,       4           ) \
     X( mjtNum,    xmat,              nbody,       9           ) \
@@ -478,38 +495,12 @@
     X( mjtNum,    qLD,               nM,          1           ) \
     X( mjtNum,    qLDiagInv,         nv,          1           ) \
     X( mjtNum,    qLDiagSqrtInv,     nv,          1           ) \
-    X( mjContact, contact,           nconmax,     1           ) \
-    X( int,       efc_type,          njmax,       1           ) \
-    X( int,       efc_id,            njmax,       1           ) \
-    X( int,       efc_J_rownnz,      njmax,       1           ) \
-    X( int,       efc_J_rowadr,      njmax,       1           ) \
-    X( int,       efc_J_rowsuper,    njmax,       1           ) \
-    X( int,       efc_J_colind,      njmax,       MJ_M(nv)    ) \
-    X( int,       efc_JT_rownnz,     nv,          1           ) \
-    X( int,       efc_JT_rowadr,     nv,          1           ) \
-    X( int,       efc_JT_rowsuper,   nv,          1           ) \
-    X( int,       efc_JT_colind,     nv,          MJ_M(njmax) ) \
-    X( mjtNum,    efc_J,             njmax,       MJ_M(nv)    ) \
-    X( mjtNum,    efc_JT,            nv,          MJ_M(njmax) ) \
-    X( mjtNum,    efc_pos,           njmax,       1           ) \
-    X( mjtNum,    efc_margin,        njmax,       1           ) \
-    X( mjtNum,    efc_frictionloss,  njmax,       1           ) \
-    X( mjtNum,    efc_diagApprox,    njmax,       1           ) \
-    X( mjtNum,    efc_KBIP,          njmax,       4           ) \
-    X( mjtNum,    efc_D,             njmax,       1           ) \
-    X( mjtNum,    efc_R,             njmax,       1           ) \
-    X( int,       efc_AR_rownnz,     njmax,       1           ) \
-    X( int,       efc_AR_rowadr,     njmax,       1           ) \
-    X( int,       efc_AR_colind,     njmax,       MJ_M(njmax) ) \
-    X( mjtNum,    efc_AR,            njmax,       MJ_M(njmax) ) \
     X( mjtNum,    ten_velocity,      ntendon,     1           ) \
     X( mjtNum,    actuator_velocity, nu,          1           ) \
     X( mjtNum,    cvel,              nbody,       6           ) \
     X( mjtNum,    cdof_dot,          nv,          6           ) \
     X( mjtNum,    qfrc_bias,         nv,          1           ) \
     X( mjtNum,    qfrc_passive,      nv,          1           ) \
-    X( mjtNum,    efc_vel,           njmax,       1           ) \
-    X( mjtNum,    efc_aref,          njmax,       1           ) \
     X( mjtNum,    subtree_linvel,    nbody,       3           ) \
     X( mjtNum,    subtree_angmom,    nbody,       3           ) \
     X( mjtNum,    qH,                nM,          1           ) \
@@ -523,14 +514,60 @@
     X( mjtNum,    qfrc_actuator,     nv,          1           ) \
     X( mjtNum,    qfrc_smooth,       nv,          1           ) \
     X( mjtNum,    qacc_smooth,       nv,          1           ) \
-    X( mjtNum,    efc_b,             njmax,       1           ) \
-    X( mjtNum,    efc_force,         njmax,       1           ) \
-    X( int,       efc_state,         njmax,       1           ) \
     X( mjtNum,    qfrc_constraint,   nv,          1           ) \
     X( mjtNum,    qfrc_inverse,      nv,          1           ) \
     X( mjtNum,    cacc,              nbody,       6           ) \
     X( mjtNum,    cfrc_int,          nbody,       6           ) \
     X( mjtNum,    cfrc_ext,          nbody,       6           )
+
+
+// macro for annotating that an array size in an X macro is a member of mjData
+// by default this macro does nothing, but users can redefine it as necessary
+#define MJ_D(n) n
+
+// array of contacts
+#define MJDATA_ARENA_POINTERS_CONTACT      \
+    X( mjContact, contact, MJ_D(ncon), 1 )
+
+// array fields of mjData that are used in the primal problem
+#define MJDATA_ARENA_POINTERS_PRIMAL                          \
+    X( int,       efc_type,          MJ_D(nefc), 1          ) \
+    X( int,       efc_id,            MJ_D(nefc), 1          ) \
+    X( int,       efc_J_rownnz,      MJ_D(nefc), 1          ) \
+    X( int,       efc_J_rowadr,      MJ_D(nefc), 1          ) \
+    X( int,       efc_J_rowsuper,    MJ_D(nefc), 1          ) \
+    X( int,       efc_J_colind,      MJ_D(nefc), MJ_M(nv)   ) \
+    X( int,       efc_JT_rownnz,     MJ_M(nv),   1          ) \
+    X( int,       efc_JT_rowadr,     MJ_M(nv),   1          ) \
+    X( int,       efc_JT_rowsuper,   MJ_M(nv),   1          ) \
+    X( int,       efc_JT_colind,     MJ_M(nv),   MJ_D(nefc) ) \
+    X( mjtNum,    efc_J,             MJ_D(nefc), MJ_M(nv)   ) \
+    X( mjtNum,    efc_JT,            MJ_M(nv),   MJ_D(nefc) ) \
+    X( mjtNum,    efc_pos,           MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_margin,        MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_frictionloss,  MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_diagApprox,    MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_KBIP,          MJ_D(nefc), 4          ) \
+    X( mjtNum,    efc_D,             MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_R,             MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_vel,           MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_aref,          MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_b,             MJ_D(nefc), 1          ) \
+    X( mjtNum,    efc_force,         MJ_D(nefc), 1          ) \
+    X( int,       efc_state,         MJ_D(nefc), 1          ) \
+
+// array fields of mjData that are used in the dual problem
+#define MJDATA_ARENA_POINTERS_DUAL                            \
+    X( int,       efc_AR_rownnz,     MJ_D(nefc), 1          ) \
+    X( int,       efc_AR_rowadr,     MJ_D(nefc), 1          ) \
+    X( int,       efc_AR_colind,     MJ_D(nefc), MJ_D(nefc) ) \
+    X( mjtNum,    efc_AR,            MJ_D(nefc), MJ_D(nefc) )
+
+// array fields of mjData that live in d->arena
+#define MJDATA_ARENA_POINTERS              \
+    MJDATA_ARENA_POINTERS_CONTACT          \
+    MJDATA_ARENA_POINTERS_PRIMAL           \
+    MJDATA_ARENA_POINTERS_DUAL
 
 
 // scalar fields of mjData

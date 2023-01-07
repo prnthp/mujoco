@@ -16,7 +16,7 @@
 
 #include <string.h>
 
-#include <mujoco/mjmodel.h>
+#include <mujoco/mjtnum.h>
 
 #ifdef mjUSEPLATFORMSIMD
   #if defined(__AVX__) && defined(mjUSEDOUBLE)
@@ -239,6 +239,15 @@ mjtNum mju_normalize4(mjtNum vec[4]) {
 void mju_zero(mjtNum* res, int n) {
   if (n>0) {
     memset(res, 0, n*sizeof(mjtNum));
+  }
+}
+
+
+
+// res = val
+void mju_fill(mjtNum* res, mjtNum val, int n) {
+  for (int i=0; i<n; i++) {
+    res[i] = val;
   }
 }
 
@@ -685,8 +694,7 @@ mjtNum mju_dot(const mjtNum* vec1, const mjtNum* vec2, const int n) {
 //------------------------------ matrix-vector operations ------------------------------------------
 
 // multiply matrix and vector
-void mju_mulMatVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec,
-                   int nr, int nc) {
+void mju_mulMatVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec, int nr, int nc) {
   for (int r=0; r<nr; r++) {
     res[r] = mju_dot(mat + r*nc, vec, nc);
   }
@@ -695,8 +703,7 @@ void mju_mulMatVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec,
 
 
 // multiply transposed matrix and vector
-void mju_mulMatTVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec,
-                    int nr, int nc) {
+void mju_mulMatTVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec, int nr, int nc) {
   mjtNum tmp;
   mju_zero(res, nc);
 
@@ -709,7 +716,18 @@ void mju_mulMatTVec(mjtNum* res, const mjtNum* mat, const mjtNum* vec,
 
 
 
-//------------------------------ matrix-matrix operations ------------------------------------------
+// multiply square matrix with vectors on both sides: return vec1'*mat*vec2
+mjtNum mju_mulVecMatVec(const mjtNum* vec1, const mjtNum* mat, const mjtNum* vec2, int n) {
+  mjtNum res = 0;
+  for (int i=0; i<n; i++) {
+    res += vec1[i] * mju_dot(mat + i*n, vec2, n);
+  }
+  return res;
+}
+
+
+
+//------------------------------ matrix operations -------------------------------------------------
 
 // transpose matrix
 void mju_transpose(mjtNum* res, const mjtNum* mat, int nr, int nc) {
@@ -721,6 +739,30 @@ void mju_transpose(mjtNum* res, const mjtNum* mat, int nr, int nc) {
 }
 
 
+
+// symmetrize square matrix res = (mat + mat')/2
+void mju_symmetrize(mjtNum* res, const mjtNum* mat, int n) {
+  for (int i=0; i<n; i++) {
+    res[i*(n+1)] = mat[i*(n+1)];
+    for (int j=0; j<i; j++) {
+      res[i*n+j] = res[j*n+i] = 0.5 * (mat[i*n+j] + mat[j*n+i]);
+    }
+  }
+}
+
+
+
+// identity matrix
+void mju_eye(mjtNum* mat, int n) {
+  mju_zero(mat, n*n);
+  for (int i=0; i<n; i++) {
+    mat[i*(n + 1)] = 1;
+  }
+}
+
+
+
+//------------------------------ matrix-matrix operations ------------------------------------------
 
 // multiply matrices, exploit sparsity of mat1
 void mju_mulMatMat(mjtNum* res, const mjtNum* mat1, const mjtNum* mat2,

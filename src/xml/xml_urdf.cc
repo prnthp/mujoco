@@ -96,7 +96,7 @@ void mjXURDF::Parse(XMLElement* root) {
     }
   }
 
-  // enfore required compiler defaults for URDF
+  // enforce required compiler defaults for URDF
   model->global = false;
   model->degree = false;
 
@@ -308,7 +308,7 @@ void mjXURDF::Joint(XMLElement* joint_elem) {
   ReadAttrTxt(joint_elem, "type", text, true);
   jointtype = FindKey(urJoint_map, urJoint_sz, text);
   if (jointtype < 0) {
-    mjXError(joint_elem, "invalid joint type in URDF joint definition");
+    throw mjXError(joint_elem, "invalid joint type in URDF joint definition");
   }
   ReadAttrTxt(joint_elem, "name", jntname, true);
 
@@ -317,7 +317,7 @@ void mjXURDF::Joint(XMLElement* joint_elem) {
   ReadAttrTxt(elem, "link", name, true);
   parent = (mjCBody*) model->GetWorld()->FindObject(mjOBJ_BODY, name);
   if (!parent) {                      // SHOULD NOT OCCUR
-    mjXError(elem, "invalid parent name in URDF joint definition");
+    throw mjXError(elem, "invalid parent name in URDF joint definition");
   }
 
   // get child=this, check
@@ -468,6 +468,14 @@ mjCGeom* mjXURDF::Geom(XMLElement* geom_elem, mjCBody* pbody, bool collision) {
   else if ((temp = FindSubElem(elem, "sphere"))) {
     pgeom->type = mjGEOM_SPHERE;
     ReadAttr(temp, "radius", 1, pgeom->size, text, true, true);
+  }
+
+  // capsule
+  else if ((temp = FindSubElem(elem, "capsule"))) {
+    pgeom->type = mjGEOM_CAPSULE;
+    ReadAttr(temp, "radius", 1, pgeom->size, text, true, true);
+    ReadAttr(temp, "length", 1, pgeom->size+1, text, true, true);
+    pgeom->size[1] /= 2;            // MuJoCo uses half-length
   }
 
   // mesh

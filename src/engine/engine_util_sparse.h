@@ -16,6 +16,7 @@
 #define MUJOCO_SRC_ENGINE_ENGINE_UTIL_SPARSE_H_
 
 #include <mujoco/mjdata.h>
+#include <mujoco/mjexport.h>
 #include <mujoco/mjtnum.h>
 
 #ifdef __cplusplus
@@ -25,8 +26,8 @@ extern "C" {
 //------------------------------ sparse operations -------------------------------------------------
 
 // dot-product, first vector is sparse
-mjtNum mju_dotSparse(const mjtNum* vec1, const mjtNum* vec2,
-                     const int nnz1, const int* ind1);
+MJAPI mjtNum mju_dotSparse(const mjtNum* vec1, const mjtNum* vec2,
+                           const int nnz1, const int* ind1);
 
 // dot-product, both vectors are sparse
 mjtNum mju_dotSparse2(const mjtNum* vec1, const mjtNum* vec2,
@@ -42,9 +43,9 @@ void mju_sparse2dense(mjtNum* res, const mjtNum* mat, int nr, int nc,
                       const int* rownnz, const int* rowadr, const int* colind);
 
 // multiply sparse matrix and dense vector:  res = mat * vec
-void mju_mulMatVecSparse(mjtNum* res, const mjtNum* mat, const mjtNum* vec,
-                         int nr, const int* rownnz, const int* rowadr,
-                         const int* colind, const int* rowsuper);
+MJAPI void mju_mulMatVecSparse(mjtNum* res, const mjtNum* mat, const mjtNum* vec,
+                               int nr, const int* rownnz, const int* rowadr,
+                               const int* colind, const int* rowsuper);
 
 // compress layout of sparse matrix
 void mju_compressSparse(mjtNum* mat, int nr, int nc,
@@ -69,14 +70,14 @@ void mju_superSparse(int nr, int* rowsuper,
                      const int* rownnz, const int* rowadr, const int* colind);
 
 // compute sparse M'*diag*M (diag=NULL: compute M'*M), res has uncompressed layout
-void mju_sqrMatTDSparse(mjtNum* res, const mjtNum* mat, const mjtNum* matT,
-                        const mjtNum* diag, int nr, int nc,
-                        int* res_rownnz, int* res_rowadr, int* res_colind,
-                        const int* rownnz, const int* rowadr,
-                        const int* colind, const int* rowsuper,
-                        const int* rownnzT, const int* rowadrT,
-                        const int* colindT, const int* rowsuperT,
-                        mjData* d);
+MJAPI void mju_sqrMatTDSparse(mjtNum* res, const mjtNum* mat, const mjtNum* matT,
+                              const mjtNum* diag, int nr, int nc,
+                              int* res_rownnz, int* res_rowadr, int* res_colind,
+                              const int* rownnz, const int* rowadr,
+                              const int* colind, const int* rowsuper,
+                              const int* rownnzT, const int* rowadrT,
+                              const int* colindT, const int* rowsuperT,
+                              mjData* d);
 
 
 #ifdef __cplusplus

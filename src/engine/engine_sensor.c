@@ -18,10 +18,12 @@
 
 #include <mujoco/mjdata.h>
 #include <mujoco/mjmodel.h>
+#include <mujoco/mjplugin.h>
 #include "engine/engine_callback.h"
 #include "engine/engine_core_smooth.h"
 #include "engine/engine_io.h"
 #include "engine/engine_macro.h"
+#include "engine/engine_plugin.h"
 #include "engine/engine_ray.h"
 #include "engine/engine_support.h"
 #include "engine/engine_util_blas.h"
@@ -88,8 +90,7 @@ static void add_noise(const mjModel* m, mjData* d, mjtStage stage) {
         // quaternion
         else if (m->sensor_datatype[i]==mjDATATYPE_QUATERNION) {
           // apply quaternion rotation to quaternion, assign
-          mju_mulQuat(res, d->sensordata+adr, quat);
-          mju_copy4(d->sensordata+adr, res);
+          mju_mulQuat(d->sensordata+adr, d->sensordata+adr, quat);
         }
 
         // unknown datatype
@@ -200,6 +201,11 @@ void mj_sensorPos(const mjModel* m, mjData* d) {
 
   // process sensors matching stage
   for (int i=0; i<m->nsensor; i++) {
+    // skip sensor plugins -- these are handled after builtin sensor types
+    if (m->sensor_type[i] == mjSENS_PLUGIN) {
+      continue;
+    }
+
     if (m->sensor_needstage[i]==mjSTAGE_POS) {
       // get sensor info
       objtype = m->sensor_objtype[i];
@@ -342,6 +348,25 @@ void mj_sensorPos(const mjModel* m, mjData* d) {
     add_noise(m, d, mjSTAGE_POS);
   }
 
+  // compute plugin sensor values
+  if (m->nplugin) {
+    const int nslot = mjp_pluginCount();
+    for (int i=0; i<m->nplugin; i++) {
+      const int slot = m->plugin[i];
+      const mjpPlugin* plugin = mjp_getPluginAtSlotUnsafe(slot, nslot);
+      if (!plugin) {
+        mju_error_i("invalid plugin slot: %d", slot);
+      }
+      if ((plugin->capabilityflags & mjPLUGIN_SENSOR) &&
+          (plugin->needstage==mjSTAGE_POS || plugin->needstage==mjSTAGE_NONE)) {
+        if (!plugin->compute) {
+          mju_error_i("`compute` is a null function pointer for plugin at slot %d", slot);
+        }
+        plugin->compute(m, d, i, mjPLUGIN_SENSOR);
+      }
+    }
+  }
+
   // cutoff
   apply_cutoff(m, d, mjSTAGE_POS);
 }
@@ -362,6 +387,11 @@ void mj_sensorVel(const mjModel* m, mjData* d) {
   // process sensors matching stage
   int subtreeVel = 0;
   for (int i=0; i<m->nsensor; i++) {
+    // skip sensor plugins -- these are handled after builtin sensor types
+    if (m->sensor_type[i] == mjSENS_PLUGIN) {
+      continue;
+    }
+
     if (m->sensor_needstage[i]==mjSTAGE_VEL) {
       // get sensor info
       type = m->sensor_type[i];
@@ -499,6 +529,32 @@ void mj_sensorVel(const mjModel* m, mjData* d) {
     add_noise(m, d, mjSTAGE_VEL);
   }
 
+  // trigger computation of plugins
+  if (m->nplugin) {
+    const int nslot = mjp_pluginCount();
+    for (int i=0; i<m->nplugin; i++) {
+      const int slot = m->plugin[i];
+      const mjpPlugin* plugin = mjp_getPluginAtSlotUnsafe(slot, nslot);
+      if (!plugin) {
+        mju_error_i("invalid plugin slot: %d", slot);
+      }
+      if ((plugin->capabilityflags & mjPLUGIN_SENSOR) && plugin->needstage==mjSTAGE_VEL) {
+        if (!plugin->compute) {
+          mju_error_i("`compute` is null for plugin at slot %d", slot);
+        }
+        if (subtreeVel == 0) {
+          // compute subtree_linvel, subtree_angmom
+          // TODO(b/247107630): add a flag to allow plugin to specify whether it actually needs this
+          mj_subtreeVel(m, d);
+
+          // mark computed
+          subtreeVel = 1;
+        }
+        plugin->compute(m, d, i, mjPLUGIN_SENSOR);
+      }
+    }
+  }
+
   // cutoff
   apply_cutoff(m, d, mjSTAGE_VEL);
 }
@@ -520,6 +576,11 @@ void mj_sensorAcc(const mjModel* m, mjData* d) {
   // process sensors matching stage
   int rnePost = 0;
   for (int i=0; i<m->nsensor; i++) {
+    // skip sensor plugins -- these are handled after builtin sensor types
+    if (m->sensor_type[i] == mjSENS_PLUGIN) {
+      continue;
+    }
+
     if (m->sensor_needstage[i]==mjSTAGE_ACC) {
       // get sensor info
       type =  m->sensor_type[i];
@@ -677,6 +738,32 @@ void mj_sensorAcc(const mjModel* m, mjData* d) {
     add_noise(m, d, mjSTAGE_ACC);
   }
 
+  // trigger computation of plugins
+  if (m->nplugin) {
+    const int nslot = mjp_pluginCount();
+    for (int i=0; i<m->nplugin; i++) {
+      const int slot = m->plugin[i];
+      const mjpPlugin* plugin = mjp_getPluginAtSlotUnsafe(slot, nslot);
+      if (!plugin) {
+        mju_error_i("invalid plugin slot: %d", slot);
+      }
+      if ((plugin->capabilityflags & mjPLUGIN_SENSOR) && plugin->needstage==mjSTAGE_ACC) {
+        if (!plugin->compute) {
+          mju_error_i("`compute` is null for plugin at slot %d", slot);
+        }
+        if (rnePost == 0) {
+          // compute cacc, cfrc_int, cfrc_ext
+          // TODO(b/247107630): add a flag to allow plugin to specify whether it actually needs this
+          mj_rnePostConstraint(m, d);
+
+          // mark computed
+          rnePost = 1;
+        }
+        plugin->compute(m, d, i, mjPLUGIN_SENSOR);
+      }
+    }
+  }
+
   // cutoff
   apply_cutoff(m, d, mjSTAGE_ACC);
 }
@@ -738,9 +825,19 @@ void mj_energyPos(const mjModel* m, mjData* d) {
   if (!mjDISABLED(mjDSBL_PASSIVE)) {
     for (int i=0; i<m->ntendon; i++) {
       stiffness = m->tendon_stiffness[i];
+      mjtNum length = d->ten_length[i];
+      mjtNum displacement = 0;
 
-      d->energy[0] += 0.5*stiffness*(d->ten_length[i] - m->tendon_lengthspring[i])*
-                      (d->ten_length[i] - m->tendon_lengthspring[i]);
+      // compute spring displacement
+      mjtNum lower = m->tendon_lengthspring[2*i];
+      mjtNum upper = m->tendon_lengthspring[2*i+1];
+      if (length > upper) {
+        displacement = upper - length;
+      } else if (length < lower) {
+        displacement = lower - length;
+      }
+
+      d->energy[0] += 0.5*stiffness*displacement*displacement;
     }
   }
 }

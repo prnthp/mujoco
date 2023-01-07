@@ -38,6 +38,14 @@ target_link_libraries(
   absl::str_format
 )
 
+mujoco_test(engine_plugin_test)
+target_link_libraries(
+  engine_plugin_test
+  fixture
+  gmock
+  absl::str_format
+)
+
 mujoco_test(engine_print_test)
 target_link_libraries(engine_print_test fixture gmock)
 
@@ -61,3 +69,6 @@ target_link_libraries(engine_util_solve_test fixture gmock)
 
 mujoco_test(engine_util_spatial_test)
 target_link_libraries(engine_util_spatial_test fixture gmock)
+
+mujoco_test(engine_vfs_test)
+target_link_libraries(engine_vfs_test fixture gmock)

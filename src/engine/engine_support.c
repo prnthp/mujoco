@@ -20,6 +20,7 @@
 #include <mujoco/mjmodel.h>
 #include "engine/engine_array_safety.h"
 #include "engine/engine_core_constraint.h"
+#include "engine/engine_crossplatform.h"
 #include "engine/engine_io.h"
 #include "engine/engine_macro.h"
 #include "engine/engine_util_blas.h"
@@ -35,8 +36,8 @@
   #endif
 #endif
 
-#define mjVERSION 222
-#define mjVERSIONSTRING "2.2.2"
+#define mjVERSION 231
+#define mjVERSIONSTRING "2.3.1"
 
 // names of disable flags
 const char* mjDISABLESTRING[mjNDISABLE] = {
@@ -433,140 +434,231 @@ int mj_jacDifPair(const mjModel* m, const mjData* d, int* chain,
 //-------------------------- name functions --------------------------------------------------------
 
 // get number of objects and name addresses for given object type
-static int _getnumadr(const mjModel* m, mjtObj type, int** padr) {
+static int _getnumadr(const mjModel* m, mjtObj type, int** padr, int* mapadr) {
+  int num = -1;
+  // map address starts at the end, subtract with explicit switch fallthrough below
+  *mapadr = m->nnames_map;
+
   // get address list and size for object type
   switch (type) {
-  case mjOBJ_BODY:
-  case mjOBJ_XBODY:
-    *padr = m->name_bodyadr;
-    return m->nbody;
-    break;
+    case mjOBJ_BODY:
+    case mjOBJ_XBODY:
+      *mapadr -= mjLOAD_MULTIPLE*m->nbody;
+      *padr = m->name_bodyadr;
+      num = m->nbody;
+      mjFALLTHROUGH;
 
-  case mjOBJ_JOINT:
-    *padr = m->name_jntadr;
-    return m->njnt;
-    break;
+    case mjOBJ_JOINT:
+      *mapadr -= mjLOAD_MULTIPLE*m->njnt;
+      if (num < 0) {
+        *padr = m->name_jntadr;
+        num = m->njnt;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_GEOM:
-    *padr = m->name_geomadr;
-    return m->ngeom;
-    break;
+    case mjOBJ_GEOM:
+      *mapadr -= mjLOAD_MULTIPLE*m->ngeom;
+      if (num < 0) {
+        *padr = m->name_geomadr;
+        num = m->ngeom;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_SITE:
-    *padr = m->name_siteadr;
-    return m->nsite;
-    break;
+    case mjOBJ_SITE:
+      *mapadr -= mjLOAD_MULTIPLE*m->nsite;
+      if (num < 0) {
+        *padr = m->name_siteadr;
+        num = m->nsite;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_CAMERA:
-    *padr = m->name_camadr;
-    return m->ncam;
-    break;
+    case mjOBJ_CAMERA:
+      *mapadr -= mjLOAD_MULTIPLE*m->ncam;
+      if (num < 0) {
+        *padr = m->name_camadr;
+        num = m->ncam;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_LIGHT:
-    *padr = m->name_lightadr;
-    return m->nlight;
-    break;
+    case mjOBJ_LIGHT:
+      *mapadr -= mjLOAD_MULTIPLE*m->nlight;
+      if (num < 0) {
+        *padr = m->name_lightadr;
+        num = m->nlight;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_MESH:
-    *padr = m->name_meshadr;
-    return m->nmesh;
-    break;
+    case mjOBJ_MESH:
+      *mapadr -= mjLOAD_MULTIPLE*m->nmesh;
+      if (num < 0) {
+        *padr = m->name_meshadr;
+        num =  m->nmesh;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_SKIN:
-    *padr = m->name_skinadr;
-    return m->nskin;
-    break;
+    case mjOBJ_SKIN:
+      *mapadr -= mjLOAD_MULTIPLE*m->nskin;
+      if (num < 0) {
+        *padr = m->name_skinadr;
+        num = m->nskin;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_HFIELD:
-    *padr = m->name_hfieldadr;
-    return m->nhfield;
-    break;
+    case mjOBJ_HFIELD:
+      *mapadr -= mjLOAD_MULTIPLE*m->nhfield;
+      if (num < 0) {
+        *padr = m->name_hfieldadr;
+        num = m->nhfield;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_TEXTURE:
-    *padr = m->name_texadr;
-    return m->ntex;
-    break;
+    case mjOBJ_TEXTURE:
+      *mapadr -= mjLOAD_MULTIPLE*m->ntex;
+      if (num < 0) {
+        *padr = m->name_texadr;
+        num = m->ntex;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_MATERIAL:
-    *padr = m->name_matadr;
-    return m->nmat;
-    break;
+    case mjOBJ_MATERIAL:
+      *mapadr -= mjLOAD_MULTIPLE*m->nmat;
+      if (num < 0) {
+        *padr = m->name_matadr;
+        num = m->nmat;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_PAIR:
-    *padr = m->name_pairadr;
-    return m->npair;
-    break;
+    case mjOBJ_PAIR:
+      *mapadr -= mjLOAD_MULTIPLE*m->npair;
+      if (num < 0) {
+        *padr = m->name_pairadr;
+        num = m->npair;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_EXCLUDE:
-    *padr = m->name_excludeadr;
-    return m->nexclude;
-    break;
+    case mjOBJ_EXCLUDE:
+      *mapadr -= mjLOAD_MULTIPLE*m->nexclude;
+      if (num < 0) {
+        *padr = m->name_excludeadr;
+        num = m->nexclude;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_EQUALITY:
-    *padr = m->name_eqadr;
-    return m->neq;
-    break;
+    case mjOBJ_EQUALITY:
+      *mapadr -= mjLOAD_MULTIPLE*m->neq;
+      if (num < 0) {
+        *padr = m->name_eqadr;
+        num = m->neq;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_TENDON:
-    *padr = m->name_tendonadr;
-    return m->ntendon;
-    break;
+    case mjOBJ_TENDON:
+      *mapadr -= mjLOAD_MULTIPLE*m->ntendon;
+      if (num < 0) {
+        *padr = m->name_tendonadr;
+        num = m->ntendon;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_ACTUATOR:
-    *padr = m->name_actuatoradr;
-    return m->nu;
-    break;
+    case mjOBJ_ACTUATOR:
+      *mapadr -= mjLOAD_MULTIPLE*m->nu;
+      if (num < 0) {
+        *padr = m->name_actuatoradr;
+        num = m->nu;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_SENSOR:
-    *padr = m->name_sensoradr;
-    return m->nsensor;
-    break;
+    case mjOBJ_SENSOR:
+      *mapadr -= mjLOAD_MULTIPLE*m->nsensor;
+      if (num < 0) {
+        *padr = m->name_sensoradr;
+        num = m->nsensor;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_NUMERIC:
-    *padr = m->name_numericadr;
-    return m->nnumeric;
-    break;
+    case mjOBJ_NUMERIC:
+      *mapadr -= mjLOAD_MULTIPLE*m->nnumeric;
+      if (num < 0) {
+        *padr = m->name_numericadr;
+        num = m->nnumeric;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_TEXT:
-    *padr = m->name_textadr;
-    return m->ntext;
-    break;
+    case mjOBJ_TEXT:
+      *mapadr -= mjLOAD_MULTIPLE*m->ntext;
+      if (num < 0) {
+        *padr = m->name_textadr;
+        num = m->ntext;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_TUPLE:
-    *padr = m->name_tupleadr;
-    return m->ntuple;
-    break;
+    case mjOBJ_TUPLE:
+      *mapadr -= mjLOAD_MULTIPLE*m->ntuple;
+      if (num < 0) {
+        *padr = m->name_tupleadr;
+        num = m->ntuple;
+      }
+      mjFALLTHROUGH;
 
-  case mjOBJ_KEY:
-    *padr = m->name_keyadr;
-    return m->nkey;
-    break;
+    case mjOBJ_KEY:
+      *mapadr -= mjLOAD_MULTIPLE*m->nkey;
+      if (num < 0) {
+        *padr = m->name_keyadr;
+        num = m->nkey;
+      }
+      mjFALLTHROUGH;
 
-  default:
-    *padr = 0;
-    return 0;
+    case mjOBJ_PLUGIN:
+      *mapadr -= mjLOAD_MULTIPLE*m->nplugin;
+      if (num < 0) {
+        *padr = m->name_pluginadr;
+        num = m->nplugin;
+      }
+      mjFALLTHROUGH;
+
+    default:
+      if (num < 0) {
+        *padr = 0;
+        num = 0;
+      }
   }
+
+  return num;
 }
 
+// get string hash, see http://www.cse.yorku.ca/~oz/hash.html
+uint64_t mj_hashdjb2(const char* s, uint64_t n) {
+  uint64_t h = 5381;
+  int c;
+  while ((c = *s++)) {
+    h  = ((h << 5) + h) + c;
+  }
+  return h % n;
+}
 
 
 // get id of object with specified name; -1: not found
 int mj_name2id(const mjModel* m, int type, const char* name) {
-  int num = 0;
+  int mapadr;
   int* adr = 0;
 
   // get number of objects and name addresses
-  num = _getnumadr(m, type, &adr);
+  int num = mjLOAD_MULTIPLE*_getnumadr(m, type, &adr, &mapadr);
 
   // search
-  if (num) {
-    for (int i=0; i<num; i++) {
-      if (!strncmp(name, m->names+adr[i], m->nnames-adr[i])) {
-        return i;
-      }
-    }
-  }
+  if (num) {    // look up at hash address
+    uint64_t hash = mj_hashdjb2(name, num);
+    uint64_t i = hash;
 
+    do {
+      int j = m->names_map[mapadr + i];
+      if (j < 0) return -1;
+      if (!strncmp(name, m->names+adr[j], m->nnames-adr[j])) {
+        return j;
+      }
+      if (++i == num) i = 0;
+    } while(i != hash);
+  }
   return -1;
 }
 
@@ -574,11 +666,11 @@ int mj_name2id(const mjModel* m, int type, const char* name) {
 
 // get name of object with specified id; 0: invalid type or id, or null name
 const char* mj_id2name(const mjModel* m, int type, int id) {
-  int num = 0;
+  int mapadr;
   int* adr = 0;
 
   // get number of objects and name addresses
-  num = _getnumadr(m, type, &adr);
+  int num = _getnumadr(m, type, &adr, &mapadr);
 
   if (id>=0 && id<num) {
     if (m->names[adr[id]]) {
@@ -934,7 +1026,7 @@ void mj_makeMSparse(const mjModel* m, mjData* d, int* rownnz, int* rowadr, int* 
     }
   }
 
-  mjFREESTACK
+  mjFREESTACK;
 }
 
 
@@ -969,14 +1061,14 @@ void mj_setMSparse(const mjModel* m, mjData* d, mjtNum* dst,
     }
   }
 
-  mjFREESTACK
+  mjFREESTACK;
 }
 
 
 
 //-------------------------- perturbations ---------------------------------------------------------
 
-// add cartesian force and torque to qfrc_target
+// add Cartesian force and torque to qfrc_target
 void mj_applyFT(const mjModel* m, mjData* d,
                 const mjtNum force[3], const mjtNum torque[3],
                 const mjtNum point[3], int body, mjtNum* qfrc_target) {

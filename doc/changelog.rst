@@ -2,19 +2,193 @@
 Changelog
 =========
 
-
 Upcoming version (not yet released)
 -----------------------------------
+- The function :ref:`mj_name2id` is now implemented using a hash function instead of a linear search for better
+  performance.
+
+Version 2.3.1 (December 6, 2022)
+-----------------------------------
+
+Python bindings
+^^^^^^^^^^^^^^^
+
+1. The ``simulate`` GUI is now available through the ``mujoco`` Python package as ``mujoco.viewer``.
+   See :ref:`documentation<PyViewer>` for details. (Contribution by `Levi Burner <https://github.com/aftersomemath>`_.)
+#. The ``Renderer`` class from the MuJoCo tutorial Colab is now available directly in the native Python bindings.
 
 General
 ^^^^^^^
 
-- Updates to humanoid model:
+3. The tendon :at:`springlength` attribute can now take two values. Given two non-decreasing values, `springlength`
+   specifies a `deadband  <https://en.wikipedia.org/wiki/Deadband>`_ range for spring stiffness. If the tendon length is
+   between the two values, the force is 0. If length is outside this range, the force behaves like a regular spring, with
+   the spring resting length corresponding to the nearest :at:`springlength` value. This can be used to create tendons
+   whose limits are enforced by springs rather than constraints, which are cheaper and easier to analyse. See
+   `tendon_springlength.xml <https://github.com/deepmind/mujoco/tree/main/test/engine/testdata/tendon_springlength.xml>`_
+   example model.
 
+   .. attention::
+     This is a minor breaking API change. ``mjModel.tendon_lengthspring`` now has size ``ntendon x 2`` rather than
+     ``ntendon x 1``.
+
+   .. youtube:: -PJ6afdETUg
+      :align: right
+      :height: 150px
+
+#. Removed the requirement that stateless actuators come before stateful actuators.
+#. Added :ref:`mju_fill`, :ref:`mju_symmetrize` and :ref:`mju_eye` utility functions.
+#. Added :at:`gravcomp` attribute to :ref:`body<body>`, implementing gravity compensation and buoyancy.
+   See `balloons.xml <https://github.com/deepmind/mujoco/tree/main/model/balloons/balloons.xml>`_ example model.
+#. Renamed the ``cable`` plugin library to ``elasticity``.
+#. Added :at:`actdim` attribute to :ref:`general actuators<actuator-general>`. Values greater than 1 are only allowed
+   for dyntype :at-val:`user`, as native activation dynamics are all scalar. Added example test implementing 2nd-order
+   activation dynamics to
+   `engine_forward_test.cc <https://github.com/deepmind/mujoco/blob/main/test/engine/engine_forward_test.cc>`_.
+#. Improved particle :ref:`composite<body-composite>` type, which now permits a user-specified geometry and multiple
+   joints. See the two new examples:
+   `particle_free.xml <https://github.com/deepmind/mujoco/tree/main/model/composite/particle_free.xml>`_ and
+   `particle_free2d.xml <https://github.com/deepmind/mujoco/tree/main/model/composite/particle_free2d.xml>`_.
+#. Performance improvements for non-AVX configurations:
+
+   - 14% faster ``mj_solveLD`` using `restrict <https://en.wikipedia.org/wiki/Restrict>`_. See `engine_core_smooth_benchmark_test
+     <https://github.com/deepmind/mujoco/tree/main/test/benchmark/engine_core_smooth_benchmark_test.cc>`_.
+   - 50% faster ``mju_dotSparse`` using manual loop unroll. See `engine_util_sparse_benchmark_test
+     <https://github.com/deepmind/mujoco/tree/main/test/benchmark/engine_util_sparse_benchmark_test.cc>`_.
+#. Added new :at:`solid` passive force plugin:
+
+   .. youtube:: AGcTGHbbze4
+      :align: right
+      :height: 150px
+
+   - This is new force field compatible with the :ref:`composite<body-composite>` particles.
+   - Generates a tetrahedral mesh having particles with mass concentrated at vertices.
+   - Uses a piecewise-constant strain model equivalent to finite elements but expressed in a coordinate-free
+     formulation. This implies that all quantities can be precomputed except edge elongation, as in a mass-spring model.
+   - Only suitable for small strains (large displacements but small deformations). Tetrahedra may invert if subject to
+     large loads.
+
+#. Added API functions ``mj_loadPluginLibrary`` and  ``mj_loadAllPluginLibraries``. The first function is identical to
+   ``dlopen`` on a POSIX system, and to ``LoadLibraryA`` on Windows. The second function scans a specified directory for
+   all dynamic libraries file and loads each library found. Dynamic libraries opened by these functions are assumed to
+   register one or more MuJoCo plugins on load.
+#. Added an optional ``visualize`` callback to plugins, which is called during ``mjv_updateScene``. This callback allows
+   custom plugin visualizations. Enable stress visualization for the Cable plugin as an example.
+#. Sensors of type :ref:`user<sensor-user>` no longer require :at:`objtype`, :at:`objname` and :at:`needstage`. If
+   unspecified, the objtype is now :ref:`mjOBJ_UNKNOWN<mjtObj>`. ``user`` sensors :at:`datatype` default is now
+   :at-val:`"real"`, :at:`needstage` default is now :at-val:`"acc"`.
+#. Added support for capsules in URDF import.
+#. On macOS, issue an informative error message when run under `Rosetta 2 <https://support.apple.com/en-gb/HT211861>`_
+   translation on an Apple Silicon machine. Pre-built MuJoCo binaries make use of
+   `AVX <https://en.wikipedia.org/wiki/Advanced_Vector_Extensions>`_ instructions on x86-64 machines, which is not
+   supported by Rosetta 2. (Before this version, users only get a cryptic "Illegal instruction" message.)
+
+Bug fixes
+^^^^^^^^^
+
+17. Fixed bug in ``mj_addFileVFS`` that was causing the file path to be ignored (introduced in 2.1.4).
+
+Simulate
+^^^^^^^^
+
+18. Renamed the directory in which the ``simulate`` application searches for plugins from ``plugin`` to ``mujoco_plugin``.
+#.  Mouse force perturbations are now applied at the selection point rather than the body center of mass.
+
+
+Version 2.3.0 (October 18, 2022)
+--------------------------------
+
+General
+^^^^^^^
+
+1. The ``contact`` array and arrays prefixed with ``efc_`` in ``mjData`` were moved out of the ``buffer`` into a new
+   ``arena`` memory space. These arrays are no longer allocated with fixed sizes when ``mjData`` is created.
+   Instead, the exact memory requirement is determined during each call to :ref:`mj_forward` (specifically,
+   in :ref:`mj_collision` and :ref:`mj_makeConstraint`) and the arrays are allocated from the ``arena`` space. The
+   ``stack`` now also shares its available memory with ``arena``. This change reduces the memory footprint of ``mjData``
+   in models that do not use the PGS solver, and will allow for significant memory reductions in the future.
+   See the :ref:`Memory allocation <CSize>` section for details.
+
+   .. youtube:: RHnXD6uO3Mg
+      :align: right
+      :height: 150px
+
+#. Added colab notebook tutorial showing how to balance the humanoid on one leg with a Linear Quadratic Regulator. The
+   notebook uses MuJoCo's native Python bindings, and includes a draft ``Renderer`` class, for easy rendering in Python.
+   |br| Try it yourself:  |LQRopenincolab|
+
+   .. |LQRopenincolab| image:: https://colab.research.google.com/assets/colab-badge.svg
+                       :target: https://colab.research.google.com/github/deepmind/mujoco/blob/main/python/LQR.ipynb
+
+#. Updates to humanoid model:
    - Added two keyframes (stand-on-one-leg and squat).
    - Increased maximum hip flexion angle.
    - Added hamstring tendons which couple the hip and knee at high hip flexion angles.
    - General cosmetic improvements, including improved use of defaults and better naming scheme.
+
+#. Added :ref:`mju_boxQP` and allocation function :ref:`mju_boxQPmalloc` for solving the box-constrained
+   Quadratic Program:
+
+   .. math::
+
+      x^* = \text{argmin} \; \tfrac{1}{2} x^T H x + x^T g \quad \text{s.t.} \quad l \le x \le u
+
+   The algorithm, introduced in `Tassa et al. 2014 <https://doi.org/10.1109/ICRA.2014.6907001>`_,
+   converges after 2-5 Cholesky factorisations, independent of problem size.
+
+#. Added :ref:`mju_mulVecMatVec` to multiply a square matrix :math:`M` with vectors :math:`x` and :math:`y` on both
+   sides. The function returns :math:`x^TMy`.
+
+#. Added new plugin API. Plugins allow developers to extend MuJoCo's capability without modifying core engine code.
+   The plugin mechanism is intended to replace the existing callbacks, though these will remain for the time being as an
+   option for simple use cases and backward compatibility. The new mechanism manages stateful plugins and supports
+   multiple plugins from different sources, allowing MuJoCo extensions to be introduced in a modular fashion, rather
+   than as global overrides. Note the new mechanism is currently undocumented except in code, as we test it internally.
+   If you are interested in using the plugin mechanism, please get in touch first.
+
+#. Added :at:`assetdir` compiler option, which sets the values of both :at:`meshdir` and :at:`texturedir`. Values in
+   the latter attributes take precedence over :at:`assetdir`.
+
+#. Added :at:`realtime` option to :ref:`visual<visual>` for starting a simulation at a slower speed.
+
+#. Added new :at:`cable` composite type:
+
+   - Cable elements are connected with ball joints.
+   - The `initial` parameter specifies the joint at the starting boundary: :at:`free`, :at:`ball`, or :at:`none`.
+   - The boundary bodies are exposed with the names :at:`B_last` and :at:`B_first`.
+   - The vertex initial positions can be specified directly in the XML with the parameter :at:`vertex`.
+   - The orientation of the body frame **is** the orientation of the material frame of the curve.
+
+#. Added new :at:`cable` passive force plugin:
+
+   - Twist and bending stiffness can be set separately with the parameters :at:`twist` and :at:`bend`.
+   - The stress-free configuration can be set to be the initial one or flat with the flag :at:`flat`.
+   - New `cable.xml <https://github.com/deepmind/mujoco/tree/main/model/plugin/cable.xml>`_ example showing the
+     formation of plectoneme.
+   - New `coil.xml <https://github.com/deepmind/mujoco/tree/main/model/plugin/coil.xml>`_  example showing a curved
+     equilibrium configuration.
+   - New `belt.xml <https://github.com/deepmind/mujoco/tree/main/model/plugin/belt.xml>`_  example showing interaction
+     between twist and anisotropy.
+   - Added test using cantilever exact solution.
+
+   +--------------------------+--------------------------+--------------------------+
+   | .. youtube:: 25kQP671fJE | .. youtube:: 4DvGe-BodFU | .. youtube:: QcGdpUd5H0c |
+   |   :align: center         |   :align: center         |    :align: center        |
+   |   :height: 140px         |   :height: 140px         |    :height: 140px        |
+   +--------------------------+--------------------------+--------------------------+
+
+Python bindings
+^^^^^^^^^^^^^^^
+11. Added ``id`` and ``name`` properties to
+    `named accessor <https://mujoco.readthedocs.io/en/latest/python.html#named-access>`_ objects.
+    These provide more Pythonic API access to ``mj_name2id`` and ``mj_id2name`` respectively.
+
+#. The length of ``MjData.contact`` is now ``ncon`` rather than ``nconmax``, allowing it to be straightforwardly used as
+   an iterator without needing to check ``ncon``.
+
+#. Fix a memory leak when a Python callable is installed as callback
+   (`#527 <https://github.com/deepmind/mujoco/issues/527>`_).
+
 
 Version 2.2.2 (September 7, 2022)
 ---------------------------------
@@ -26,7 +200,7 @@ General
    :align: right
    :height: 150px
 
-1. Added :ref:`adhesion actuators<adhesion>` mimicking vacuum grippers and adhesive biomechanical appendages.
+1. Added :ref:`adhesion actuators<actuator-adhesion>` mimicking vacuum grippers and adhesive biomechanical appendages.
 #. Added related `example model <https://github.com/deepmind/mujoco/tree/main/model/adhesion>`_ and video:
 #. Added :ref:`mj_jacSubtreeCom` for computing the translational Jacobian of the center-of-mass of a subtree.
 #. Added :at:`torquescale` and :at:`anchor` attributes to :el:`weld` constraints. :at:`torquescale` sets the
@@ -43,8 +217,9 @@ General
       :height: 150px
 
 #. Cartesian 6D end-effector control is now possible by adding a reference site to actuators with :at:`site`
-   transmission. See description of new :at:`refsite` attribute in the :ref:`actuator<general>` documentation and
-   `refsite.xml <https://github.com/deepmind/mujoco/tree/main/test/engine/testdata/refsite.xml>`_ example model.
+   transmission. See description of new :at:`refsite` attribute in the :ref:`actuator<actuator-general>` documentation
+   and `refsite.xml <https://github.com/deepmind/mujoco/tree/main/test/engine/testdata/refsite.xml>`_ example model.
+
 #. Added :at:`autolimits` compiler option. If ``true``, joint and tendon :at:`limited` attributes and actuator
    :at:`ctrllimited`, :at:`forcelimited` and :at:`actlimited` attributes will automatically be set to ``true`` if the
    corresponding range *is defined* and ``false`` otherwise.
@@ -70,8 +245,8 @@ General
 
 #. Added catenary visualisation for hanging tendons. The model seen in the video can be found
    `here <https://github.com/deepmind/mujoco/tree/main/test/engine/testdata/catenary.xml>`_.
-#. Added ``azimuth`` and ``elevation`` attributes to :ref:`visual/global<global>`, defining the initial orientation of
-   the free camera at model load time.
+#. Added ``azimuth`` and ``elevation`` attributes to :ref:`visual/global<visual-global>`, defining the initial
+   orientation of the free camera at model load time.
 #. Added ``mjv_defaultFreeCamera`` which sets the default free camera, respecting the above attributes.
 #. ``simulate`` now supports taking a screenshot via a button in the File section or via ``Ctrl-P``.
 #. Improvements to time synchronisation in `simulate`, in particular report actual real-time factor if different from
@@ -107,8 +282,9 @@ General
 #. Added visualisation groups to skins.
 #. Added actuator visualisation for ``free`` and ``ball`` joints and for actuators with ``site`` transmission.
 #. Added visualisation for actuator activations.
-#. Added ``<intvelocity>`` actuator shortcut for "integrated velocity" actuators, documented :ref:`here <intvelocity>`.
-#. Added ``<damper>`` actuator shortcut for active-damping actuators, documented :ref:`here <damper>`.
+#. Added ``<actuator-intvelocity>`` actuator shortcut for "integrated velocity" actuators, documented
+   :ref:`here <actuator-intvelocity>`.
+#. Added ``<actuator-damper>`` actuator shortcut for active-damping actuators, documented :ref:`here <actuator-damper>`.
 #. ``mju_rotVecMat`` and ``mju_rotVecMatT`` now support in-place multiplication.
 #. ``mjData.ctrl`` values are no longer clamped in-place, remain untouched by the engine.
 #. Arrays in mjData's buffer now align to 64-byte boundaries rather than 8-byte.
@@ -176,11 +352,12 @@ General
 #. Added ``implicit`` integrator. Using the analytic derivatives above, a new implicit-in-velocity integrator was added.
    This integrator lies between the Euler and Runge Kutta integrators in terms of both stability and computational
    cost. It is most useful for models which use fluid drag (e.g. for flying or swimming) and for models which use
-   :ref:`velocity actuators<velocity>`. For more details, see the :ref:`Numerical Integration<geIntegration>` section.
+   :ref:`velocity actuators<actuator-velocity>`. For more details, see the :ref:`Numerical Integration<geIntegration>`
+   section.
 
-#. Added :at:`actlimited` and :at:`actrange` attributes to :ref:`general actuators<general>`, for clamping actuator
-   internal states (activations). This clamping is useful for integrated-velocity actuators, see the :ref:`Activation
-   clamping <CActRange>` section for details.
+#. Added :at:`actlimited` and :at:`actrange` attributes to :ref:`general actuators<actuator-general>`, for clamping
+   actuator internal states (activations). This clamping is useful for integrated-velocity actuators, see the
+   :ref:`Activation clamping <CActRange>` section for details.
 
 #. ``mjData`` fields ``qfrc_unc`` (unconstrained forces) and ``qacc_unc`` (unconstrained accelerations) were renamed
    ``qfrc_smooth`` and ``qacc_smooth``, respectively. While "unconstrained" is precise, "smooth" is more intelligible
@@ -190,14 +367,15 @@ General
    other open source projects. Developers are encouraged to include MuJoCo public headers in their own codebase via
    ``#include <mujoco/filename.h>``.
 
-#. The default shadow resolution specified by the :ref:`shadowsize<quality>` attribute was increased from 1024 to 4096.
+#. The default shadow resolution specified by the :ref:`shadowsize<visual-quality>` attribute was increased from 1024 to
+   4096.
 
 #. Saved XMLs now use 2-space indents.
 
 Bug fixes
 ^^^^^^^^^
 
-10. Antialiasing was disabled for segmentation rendering. Before this change, if the :ref:`offsamples<quality>`
+10. Antialiasing was disabled for segmentation rendering. Before this change, if the :ref:`offsamples<visual-quality>`
     attribute was greater than 0 (the default value is 4), pixels that overlapped with multiple geoms would receive
     averaged segmentation IDs, leading to incorrect or non-existent IDs. After this change :at:`offsamples` is ignored
     during segmentation rendering.
@@ -348,14 +526,15 @@ General
 
 #. Increased the maximum number of lights in an :ref:`mjvScene` from 8 to 100.
 
-#. Saved XML files only contain explicit :ref:`inertial <inertial>` elements if the original XML included them. Inertias
-   that were automatically inferred by the compiler's :ref:`inertiafromgeom <compiler>` mechanism remain unspecified.
+#. Saved XML files only contain explicit :ref:`inertial <body-inertial>` elements if the original XML included them.
+   Inertias that were automatically inferred by the compiler's :ref:`inertiafromgeom <compiler>` mechanism remain
+   unspecified.
 
 #. User-selected geoms are always rendered as opaque. This is useful in interactive visualizers.
 
-#. Static geoms now respect their :ref:`geom group<geom>` for visualisation. Until this change rendering of static geoms
-   could only be toggled using the :ref:`mjVIS_STATIC<mjtVisFlag>` visualisation flag . After this change, both the geom
-   group and the visualisation flag need to be enabled for the geom to be rendered.
+#. Static geoms now respect their :ref:`geom group<body-geom>` for visualisation. Until this change rendering of static
+   geoms could only be toggled using the :ref:`mjVIS_STATIC<mjtVisFlag>` visualisation flag . After this change, both
+   the geom group and the visualisation flag need to be enabled for the geom to be rendered.
 
 #. Pointer parameters in function declarations in :ref:`mujoco.h<inHeader>` that are supposed to represent fixed-length
    arrays are now spelled as arrays with extents, e.g. ``mjtNum quat[4]`` rather than ``mjtNum* quat``. From the
@@ -365,7 +544,7 @@ General
 #. Experimental stateless fluid interaction model. As described :ref:`here <gePassive>`, fluid forces use sizes computed
    from body inertia. While sometimes convenient, this is very rarely a good approximation. In the new model forces act
    on geoms, rather than bodies, and have a several user-settable parameters. The model is activated by setting a new
-   attribute: ``<geom fluidshape="ellipsoid"/>``. The parameters are described succinctly :ref:`here<geom>`, but we
+   attribute: ``<geom fluidshape="ellipsoid"/>``. The parameters are described succinctly :ref:`here<body-geom>`, but we
    leave a full description or the model and its parameters to when this feature leaves experimental status.
 
 Bug fixes
@@ -426,9 +605,9 @@ Bug Fixes
    :ref:`weld <equality-weld>` constraints.
 
    .. note::
-      Forces generated by :ref:`spatial tendons <spatial>` which are outside the kinematic tree (i.e., between bodies
-      which have no ancestral relationship) are still not taken into account by force and torque sensors. This remains a
-      future work item.
+      Forces generated by :ref:`spatial tendons <tendon-spatial>` which are outside the kinematic tree (i.e., between
+      bodies which have no ancestral relationship) are still not taken into account by force and torque sensors. This
+      remains a future work item.
 
 Code samples
 ^^^^^^^^^^^^
@@ -455,11 +634,11 @@ Binary build
 
 15. MacOS packaging. We now ship Universal binaries that natively support both Apple Silicon and Intel CPUs.
 
-    a. MuJoCo library is now packaged as a
-       `Framework Bundle <https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFrameworks/Concepts/FrameworkAnatomy.html>`_,
-       allowing it to be incorporated more easily into Xcode projects (including Swift projects). Developers are
-       encouraged to compile and link against MuJoCo using the ``-framework mujoco`` flag, however all header files and
-       the ``libmujoco.2.1.1.dylib`` library can still be directly accessed inside the framework.
+    a. MuJoCo library is now packaged as a `Framework Bundle
+       <https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFrameworks/Concepts/FrameworkAnato
+       my.html>`_, allowing it to be incorporated more easily into Xcode projects (including Swift projects). Developers
+       are encouraged to compile and link against MuJoCo using the ``-framework mujoco`` flag, however all header files
+       and the ``libmujoco.2.1.1.dylib`` library can still be directly accessed inside the framework.
     #. Sample applications are now packaged into an Application Bundle called ``MuJoCo.app``. When launched via GUI,
        the bundle launches the ``simulate`` executable. Other precompiled sample programs are shipped inside that bundle
        (in ``MuJoCo.app/Contents/MacOS``) and can be launched via command line.

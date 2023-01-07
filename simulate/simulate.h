@@ -16,35 +16,28 @@
 #define MUJOCO_SIMULATE_SIMULATE_H_
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
+#include <ratio>
 #include <thread>
 
-#include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
-
-#ifdef MJSIMULATE_STATIC
-  // static library
-  #define MJSIMULATEAPI
-  #define MJSIMULATELOCAL
-#else
-  #ifdef MJSIMULATE_DLL_EXPORTS
-    #define MJSIMULATEAPI MUJOCO_HELPER_DLL_EXPORT
-  #else
-    #define MJSIMULATEAPI MUJOCO_HELPER_DLL_IMPORT
-  #endif
-  #define MJSIMULATELOCAL MUJOCO_HELPER_DLL_LOCAL
-#endif
+#include "platform_ui_adapter.h"
 
 namespace mujoco {
 
 //-------------------------------- global -----------------------------------------------
 
 // Simulate states not contained in MuJoCo structures
-class MJSIMULATEAPI Simulate {
+class Simulate {
  public:
+  using Clock = std::chrono::steady_clock;
+  static_assert(std::ratio_less_equal_v<Clock::period, std::milli>);
+
   // create object and initialize the simulate ui
-  Simulate() = default;
+  Simulate(std::unique_ptr<PlatformUIAdapter> platform_ui_adapter);
 
   // Apply UI pose perturbations to model and data
   void applyposepertubations(int flg_paused);
@@ -54,7 +47,7 @@ class MJSIMULATEAPI Simulate {
 
   // Request that the Simulate UI thread render a new model
   // optionally delete the old model and data when done
-  void load(const char* file, mjModel* m, mjData* d, bool delete_old_m_d);
+  void load(const char* file, mjModel* m, mjData* d);
 
   // functions below are used by the renderthread
   // load mjb or xml model that has been requested by load()
@@ -66,11 +59,7 @@ class MJSIMULATEAPI Simulate {
   // render the ui to the window
   void render();
 
-  // clear callbacks registered in external structures
-  void clearcallback();
-
   // loop to render the UI (must be called from main thread because of MacOS)
-  // https://discourse.glfw.org/t/multithreading-glfw/573/5
   void renderloop();
 
   // constants
@@ -79,7 +68,6 @@ class MJSIMULATEAPI Simulate {
   // model and data to be visualized
   mjModel* mnew = nullptr;
   mjData* dnew = nullptr;
-  bool delete_old_m_d = false;
 
   mjModel* m = nullptr;
   mjData* d = nullptr;
@@ -107,9 +95,9 @@ class MJSIMULATEAPI Simulate {
   int run = 1;
 
   // atomics for cross-thread messages
-  std::atomic_bool exitrequest = false;
-  std::atomic_bool droploadrequest = false;
-  std::atomic_bool screenshotrequest = false;
+  std::atomic_int exitrequest = false;
+  std::atomic_int droploadrequest = false;
+  std::atomic_int screenshotrequest = false;
   std::atomic_int uiloadrequest = 0;
 
   // loadrequest
@@ -125,7 +113,7 @@ class MJSIMULATEAPI Simulate {
   char previous_filename[kMaxFilenameLength] = "";
 
   // time synchronization
-  int realTimeIndex = 0;
+  int realTimeIndex;
   bool speedChanged = true;
   float measuredSlowdown = 1.0;
   // logarithmically spaced realtime slow-down coefficients (percent)
@@ -163,13 +151,11 @@ class MJSIMULATEAPI Simulate {
   mjvFigure figsensor = {};
 
   // OpenGL rendering and UI
-  GLFWvidmode vmode = {};
   int refreshRate = 60;
   int windowpos[2] = {0};
   int windowsize[2] = {0};
-  mjrContext con = {};
-  GLFWwindow* window = nullptr;
-  mjuiState uistate = {};
+  std::unique_ptr<PlatformUIAdapter> platform_ui;
+  mjuiState& uistate;
   mjUI ui0 = {};
   mjUI ui1 = {};
 
@@ -227,7 +213,6 @@ class MJSIMULATEAPI Simulate {
   char info_title[Simulate::kMaxFilenameLength] = {0};
   char info_content[Simulate::kMaxFilenameLength] = {0};
 };
-
 }  // namespace mujoco
 
 #endif

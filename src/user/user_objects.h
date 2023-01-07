@@ -15,6 +15,7 @@
 #ifndef MUJOCO_SRC_USER_USER_OBJECTS_H_
 #define MUJOCO_SRC_USER_USER_OBJECTS_H_
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -84,7 +85,7 @@ typedef enum _mjtMeshType {
 
 
 // error information
-class mjCError {
+class [[nodiscard]] mjCError {
  public:
   mjCError(const mjCBase* obj = 0,
            const char* msg = 0,
@@ -117,6 +118,7 @@ class mjCAlternative {
 //------------------------- class mjCBase ----------------------------------------------------------
 // Generic functionality for all derived classes
 
+class mjCPlugin;
 class mjCBase {
   friend class mjCDef;
 
@@ -126,10 +128,16 @@ class mjCBase {
   int id;                         // object id
   int xmlpos[2];                  // row and column in xml file
   mjCDef* def;                    // defaults class used to init this object
+  mjCModel* model;                // pointer to model that created object
+
+  // plugin support
+  bool is_plugin;
+  std::string plugin_name;
+  std::string plugin_instance_name;
+  mjCPlugin* plugin_instance;
 
  protected:
   mjCBase();                      // constructor
-  mjCModel* model;                // pointer to model that created object
 };
 
 
@@ -178,6 +186,7 @@ class mjCBody : public mjCBase {
   double iquat[4];                // inertial frame orientation
   double mass;                    // mass
   double inertia[3];              // diagonal inertia (in i-frame)
+  double gravcomp;                // gravity compensation
   std::vector<double> userdata;   // user data
   mjCAlternative alt;             // alternative orientation specification
   mjCAlternative ialt;            // alternative for inertial frame
@@ -482,16 +491,15 @@ class mjCMesh: public mjCBase {
   void MakeNormal(void);                      // compute vertex normals
   void Process();                             // apply transformations
   void RemoveRepeated(void);                  // remove repeated vertices
-  void ComputeInertia(mjtMeshType type);      // compute inertia
   void CheckMesh(void);                       // check if the mesh is valid
 
   // mesh properties that indicate a well-formed mesh
-  bool validorientation;              // false if mesh have inconsistent faces
-  bool validarea;                     // false if the area is too small
-  bool validvolume;                   // false if the volume is too small
-  bool valideigenvalue;               // false if inertia eigenvalue is too small
-  bool validinequality;               // false if inertia inequality is not satisfied
-  bool processed;                     // false if the mesh has not been processed yet
+  std::pair<int, int> invalidorientation;     // indices of invalid edge; -1 if none
+  bool validarea;                             // false if the area is too small
+  bool validvolume;                           // false if the volume is too small
+  bool valideigenvalue;                       // false if inertia eigenvalue is too small
+  bool validinequality;                       // false if inertia inequality is not satisfied
+  bool processed;                             // false if the mesh has not been processed yet
 
   // mesh properties computed by Compile
   double pos_volume[3];               // CoM position
@@ -795,7 +803,7 @@ class mjCTendon : public mjCBase {
   double stiffness;               // stiffness coefficient
   double damping;                 // damping coefficient
   double frictionloss;            // friction loss
-  double springlength;            // spring length; -1: use qpos_spring
+  double springlength[2];         // spring resting length; {-1, -1}: use qpos_spring
   std::vector<double> userdata;   // user data
   float rgba[4];                  // rgba when material is omitted
 
@@ -833,6 +841,27 @@ class mjCWrap : public mjCBase {
 
 
 
+//------------------------- class mjCPlugin --------------------------------------------------------
+// Describes an instance of a plugin
+
+class mjCPlugin : public mjCBase {
+  friend class mjCModel;
+  friend class mjXWriter;
+
+ public:
+  int plugin_slot;   // global registered slot number of the plugin
+  int nstate;        // state size for the plugin instance
+  mjCBase* parent;   // parent object (only used when generating error message)
+  std::map<std::string, std::string, std::less<>> config_attribs;  // raw config attributes from XML
+  std::vector<char> flattened_attributes;  // config attributes flattened in plugin-declared order
+
+ private:
+  mjCPlugin(mjCModel*);            // constructor
+  void Compile(void);              // compiler
+};
+
+
+
 //------------------------- class mjCActuator ------------------------------------------------------
 // Describes an actuator
 
@@ -844,9 +873,10 @@ class mjCActuator : public mjCBase {
  public:
   // variables set by user or API
   int group;                      // group for visualization
-  int ctrllimited;               // are control limits defined: 0 false, 1 true, 2 auto
-  int forcelimited;              // are force limits defined: 0 false, 1 true, 2 auto
-  int actlimited;                // are activation limits defined: 0 false, 1 true, 2 auto
+  int ctrllimited;                // are control limits defined: 0 false, 1 true, 2 auto
+  int forcelimited;               // are force limits defined: 0 false, 1 true, 2 auto
+  int actlimited;                 // are activation limits defined: 0 false, 1 true, 2 auto
+  int actdim;                     // dimension of associated activations
   mjtDyn dyntype;                 // dynamics type
   mjtTrn trntype;                 // transmission type
   mjtGain gaintype;               // gain type
@@ -864,6 +894,12 @@ class mjCActuator : public mjCBase {
   std::string target;             // transmission target name
   std::string slidersite;         // site defining cylinder, for slider-crank only
   std::string refsite;            // reference site, for site transmission only
+
+  // plugin support
+  bool is_plugin;
+  std::string plugin_name;
+  std::string plugin_instance_name;
+  mjCPlugin* plugin_instance;
 
  private:
   mjCActuator(mjCModel* = 0, mjCDef* = 0);// constructor
@@ -895,6 +931,11 @@ class mjCSensor : public mjCBase {
   double cutoff;                  // cutoff for real and positive datatypes
   double noise;                   // noise stdev
   std::vector<double> userdata;   // user data
+
+  // plugin support
+  std::string plugin_name;
+  std::string plugin_instance_name;
+  mjCPlugin* plugin_instance;
 
  private:
   mjCSensor(mjCModel*);           // constructor
